@@ -23,8 +23,8 @@
     {
       "index": 1, // 顺序索引号
       "title": "Cat image 1", // 图像的标题
-      "url": "https://example.com/image1.jpg", // 图像的原 URL
-      "thumbURL": "https://thumb。example.com/image1.jpg" // 图像在搜索引擎服务器的 URL
+      "url": "https://example.com/image1.jpg", // 图像的原始 URL
+      "thumbURL": "https://thumb。example.com/image1.jpg" // 图像在搜索引擎的 URL
     },
     {
       "index": 2,
