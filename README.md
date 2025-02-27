@@ -2,6 +2,8 @@
 ## 简介
 这是一个简单的使用 Cloudflare Workers 部署的百度搜索图片 API。
 
+注意：未使用任何 API，程序是直接解析 HTML 页面得来的数据，不保证稳定性。
+
 ## 部署
 直接部署到 Cloudflare Workers 即可。
 
