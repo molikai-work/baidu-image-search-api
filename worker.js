@@ -17,6 +17,7 @@ async function handleIncomingRequest(request) {
   const searchKeyword = url.searchParams.get('q');
   const maxImages = Math.min(Math.max(parseInt(url.searchParams.get('max')) || 60, 1), 60);
   const parseMethod = url.searchParams.get('method')?.toLowerCase() === 'html' ? 'HTML' : 'JSON';
+  const enableBing = url.searchParams.get('bing')?.toLowerCase() !== 'false';
 
   // 如果没有提供搜索关键词
   if (!searchKeyword) {
@@ -36,26 +37,29 @@ async function handleIncomingRequest(request) {
     const baiduUrl = `https://image.baidu.com/search/flip?tn=baiduimage&word=${encodeURIComponent(searchKeyword)}`;
     const bingUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(searchKeyword)}&form=HDRSC3&first=1`;
 
-    // 并行获取百度和必应的 HTML 内容
+    // 并行获取百度和必应的 HTML 内容（如果启用）
     const [baiduResult, bingResult] = await Promise.allSettled([
       fetchHtmlContent(baiduUrl),
-      fetchHtmlContent(bingUrl)
+      enableBing ? fetchHtmlContent(bingUrl) : Promise.resolve(null)
     ]);
 
     // 处理获取的结果
     const baiduHtml = baiduResult.status === 'fulfilled' ? baiduResult.value : null;
-    const bingHtml = bingResult.status === 'fulfilled' ? bingResult.value : null;
+    const bingHtml = enableBing && bingResult.status === 'fulfilled' ? bingResult.value : null;
 
     // 提取百度和必应的图片 URL
     const baiduImageUrls = baiduHtml ? getBaiduImages(baiduHtml, parseMethod, maxImages) : [];
-    const bingImageUrls = bingHtml ? getBingImages(bingHtml, maxImages) : [];
+    const bingImageUrls = enableBing && bingHtml ? getBingImages(bingHtml, maxImages) : [];
 
     // 构建响应数据
     const jsonResponse = {
       code: 200,
       message: 'success',
       time: Date.now(),
-      data: { baidu: baiduImageUrls, bing: bingImageUrls }
+      data: {
+        baidu: baiduImageUrls,
+        ...(enableBing ? { bing: bingImageUrls } : {})
+      }
     };
 
     // 返回 JSON 响应
