@@ -5,12 +5,7 @@ addEventListener('fetch', event => {
 async function handleIncomingRequest(request) {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Max-Age': '86400'
-      },
+      headers: getResponseHeaders()
     });
   }
 
@@ -31,42 +26,36 @@ async function handleIncomingRequest(request) {
     );
   }
 
-  console.log(`Query: "${searchKeyword}", Max: ${maxImages}, Method: ${parseMethod}`);
-
-  const searchApiUrl = `https://image.baidu.com/search/flip?tn=baiduimage&word=${encodeURIComponent(searchKeyword)}`;
-
   try {
-    const htmlContent = await fetchHtmlContent(searchApiUrl);
+    const baiduUrl = `https://image.baidu.com/search/flip?tn=baiduimage&word=${encodeURIComponent(searchKeyword)}`;
+    const bingUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(searchKeyword)}&form=HDRSC3&first=1`;
 
-    if (!htmlContent) {
-      return new Response(null, { status: 500 });
-    }
+    const [baiduHtml, bingHtml] = await Promise.all([
+      fetchHtmlContent(baiduUrl),
+      fetchHtmlContent(bingUrl)
+    ]);
 
-    const imageUrls = parseMethod === 'HTML' 
-      ? extractImageUrlsFromHTML(htmlContent, maxImages)
-      : extractImageUrlsFromJSON(htmlContent, maxImages);
+    const baiduImageUrls = parseMethod === 'HTML'
+      ? extractImageUrlsFromHTML(baiduHtml, maxImages)
+      : extractImageUrlsFromJSON(baiduHtml, maxImages);
 
-    if (!imageUrls) {
-      return new Response(null, { status: 500 });
-    }
+    const bingImageUrls = extractImageUrlsFromBing(bingHtml, maxImages);
 
     const jsonResponse = {
       code: 200,
       message: "success",
       time: Date.now(),
-      data: imageUrls.map((data, index) => ({
-        index: index + 1,
-        title: data.title,
-        url: data.imageUrl,
-        thumbURL: data.imageThumbURL
-      }))
+      data: {
+        baidu: baiduImageUrls,
+        bing: bingImageUrls
+      }
     };
 
     return new Response(JSON.stringify(jsonResponse), {
-			headers: getResponseHeaders(),
-		});		
-  } catch (error) {
-    console.error("Error:", error);
+      headers: getResponseHeaders()
+    });
+  } catch (err) {
+    console.error('Error:', err);
     return new Response(null, { status: 500 });
   }
 }
@@ -74,7 +63,10 @@ async function handleIncomingRequest(request) {
 function getResponseHeaders() {
   return {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400'
   };
 }
 
@@ -84,25 +76,22 @@ async function fetchHtmlContent(apiUrl) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.8263.533 Safari/537.36',
         'Accept-Language': 'zh,zh-CN;q=0.9',
-        'Referer': 'https://www.baidu.com/',
+        'Referer': 'https://www.baidu.com/'
       }
     });
     return await response.text();
   } catch (error) {
-    console.error('Error fetching HTML content:', error);
+    console.error('Fetch HTML error:', error);
     return null;
   }
 }
 
 function extractImageUrlsFromHTML(htmlContent, maxImages) {
   try {
-    const startTime = performance.now();
-
     const imageUrls = [];
-
     const fromPageTitleMatches = htmlContent.match(/"fromPageTitle":"([^"]+)"/g);
-    const objURLMatches = htmlContent.match(/"objURL":"(https?:\/\/[^\"]+)"/g);
-    const thumbURLMatches = htmlContent.match(/"thumbURL":"(https?:\/\/[^\"]+)"/g);
+    const objURLMatches = htmlContent.match(/"objURL":"(https?:\/\/[^"]+)"/g);
+    const thumbURLMatches = htmlContent.match(/"thumbURL":"(https?:\/\/[^"]+)"/g);
 
     if (objURLMatches) {
       objURLMatches.forEach((match, index) => {
@@ -115,49 +104,73 @@ function extractImageUrlsFromHTML(htmlContent, maxImages) {
             ? thumbURLMatches[index].split('"')[3]
             : null;
 
-          imageUrls.push({ title, imageUrl, imageThumbURL });
+          imageUrls.push({ index: index + 1, title, url: imageUrl, thumbURL: imageThumbURL });
         }
       });
     }
-
-    const endTime = performance.now();
-    const duration = endTime - startTime;
-//    console.log(`HTML processing time: ${duration.toFixed(3)} ms`);
-
     return imageUrls;
-  } catch (error) {
-    console.error('Error extracting image data:', error);
-    return null;
+  } catch (err) {
+    console.error('HTML parse error:', err);
+    return [];
   }
 }
 
 function extractImageUrlsFromJSON(htmlContent, maxImages) {
   try {
-    const startTime = performance.now();
-
     const regex = /flip.setData\('imgData',\s*(\{.*?\})\s*\);/;
     const match = htmlContent.match(regex);
-    
-    if (!match || !match[1]) {
-      console.error('Failed to find imgData in HTML content');
-      return null;
-    }
+
+    if (!match || !match[1]) return [];
 
     const imgData = JSON.parse(match[1]);
 
-    const imageUrls = imgData.data.slice(0, maxImages).map(item => ({
-      title: item.fromPageTitle || null,
-      imageUrl: item.objURL || null,
-      imageThumbURL: item.thumbURL || null
+    return imgData.data.slice(0, maxImages).map((item, index) => ({
+      index: index + 1,
+      title: item.fromPageTitle || '',
+      url: item.objURL || '',
+      thumbURL: item.thumbURL || ''
     }));
+  } catch (err) {
+    console.error('JSON parse error:', err);
+    return [];
+  }
+}
 
-    const endTime = performance.now();
-    const duration = endTime - startTime;
-//    console.log(`JSON processing time: ${duration.toFixed(3)} ms`);
+function extractImageUrlsFromBing(htmlContent, maxImages) {
+  try {
+    const imageUrls = [];
+    const regex = /class="iusc"[^>]*?m="([^"]+)"/g;
+    let match;
+    let index = 1;
+
+    while ((match = regex.exec(htmlContent)) !== null && imageUrls.length < maxImages) {
+      const jsonStr = match[1]
+        .replace(/&quot;/g, '"')
+        .replace(/\\u002f/g, '/')
+        .replace(/\\\\/g, '\\');
+
+      try {
+        const meta = JSON.parse(jsonStr);
+        const imageUrl = meta.murl || null;
+        const imageThumbURL = meta.turl || null;
+        const title = meta.t || meta.desc || 'Bing Image';
+
+        if (imageUrl && imageThumbURL) {
+          imageUrls.push({
+            index: index++,
+            title: title,
+            url: imageUrl,
+            thumbURL: imageThumbURL
+          });
+        }
+      } catch (parseErr) {
+        continue; // ignore broken JSON
+      }
+    }
 
     return imageUrls;
-  } catch (error) {
-    console.error('Error extracting image JSON data:', error);
-    return null;
+  } catch (err) {
+    console.error('Bing extract error:', err);
+    return [];
   }
 }
